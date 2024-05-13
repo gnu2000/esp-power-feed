@@ -106,10 +106,9 @@ void loop()
       // Serial.println(SPEED_IN_RPM);
       // Serial.println(analogRead(speedpot));
 
-    if (SPEED_IN_RPM < 75) {
+    if (SPEED_IN_RPM < 50) {
        stepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
        stepper.setTargetPositionToStop();
-       onoff = HIGH;
     } else {
 //       digitalWrite(enablePin, HIGH);   // Enable stepper
        stepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
@@ -124,7 +123,11 @@ void updateSwitches() // Function to update the states of the controls
     int onoff = digitalRead(onoffPin);
     int rapid = digitalRead(rapidPin);
     int direction = digitalRead(directionPin);
-  
+
+    if (SPEED_IN_RPM < 50) {
+       onoff = LOW;  // Turns the stepper off if the potentiometer is set around 0
+    }
+
     // Rapid logic
     if (rapid == LOW) {
         SPEED_IN_RPM = speedmax;
