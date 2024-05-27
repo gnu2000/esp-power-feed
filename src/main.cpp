@@ -9,25 +9,38 @@
 
 void updateScreen();
 void updateSwitches();
+void selectAxis();
+void runX();
+void runZ();
 
-int Stepper1Pulse = 25;  // **** for CNC shield
-int Stepper1Direction = 26;  // **** for CNC shield
-const byte enablePin = 27;   // **** for CNC shield
-int speedpot = A0;
+// Define pins for the motors
+int xPulse = 25;
+int xDirection = 26;
+const byte xEnable = 27;
 
-int x_lsPitch = 2; // Lead screw pitch in mm for calculations
+int zPulse = 19;
+int zDirection = 18;
+const byte zEnable = 17;
+
+int enable = 0;
+
+// Misc variables for calculations
+int x_lsPitch = 2; // Lead screw pitch in mm
 int z_lsPitch = 4;
+int lsPitch = 0;
 int xscale = 1; // Scaling factors for pulley gear reductions
 int zscale = 3;
+int scale = 0;
 
-String axis = "X: ";
+String axis = "Starting...";
 
 // Define some pins for user controls
-int onoffPin = 17;
+int onoffPin = 16;
 int rapidPin = 4;
 int directionPin = 2;
-
+int speedpot = A0;
 int onoff = 0;
+int axisPin = 33;
 
 // Set some healthy speed boundries (RPM)
 
@@ -41,8 +54,11 @@ int ACCELERATION_IN_STEPS_PER_SECOND = 800;
 int DECELERATION_IN_STEPS_PER_SECOND = 800;
 int SPEED_IN_STEPS_PER_SECOND = 300;
 
+int activeAxis = 0;
+
 // create the stepper motor object
-ESP_FlexyStepper stepper;
+ESP_FlexyStepper xStepper;
+ESP_FlexyStepper zStepper;
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
@@ -51,34 +67,47 @@ void setup()
 {
    // Start serial
    Serial.begin(115200); // ************** faster baud rate
-   // Serial.println("Running: StepperDriverTest");
 
-   pinMode(enablePin, OUTPUT);  // **** for CNC shield
-   digitalWrite(enablePin, LOW);   // **** for CNC shield
-   digitalWrite(Stepper1Direction, HIGH); // CW
-   
+   pinMode(xEnable, OUTPUT);  
+   digitalWrite(xEnable, LOW);   
+   digitalWrite(xDirection, HIGH); // CW
+
+   pinMode(zEnable, OUTPUT);  
+   digitalWrite(zEnable, LOW);   
+   digitalWrite(zDirection, HIGH); // CW
+
    // Setup pins for controls
    pinMode( rapidPin, INPUT_PULLUP );
    pinMode( onoffPin, INPUT_PULLUP );
    pinMode( directionPin, INPUT_PULLUP );
+   pinMode( axisPin, INPUT_PULLUP );
 
-   // connect and configure the stepper motor to its IO pins
-   stepper.connectToPins(Stepper1Pulse, Stepper1Direction);
-   // set the speed and acceleration rates for the stepper motor
-   stepper.setStepsPerRevolution(200);
-   stepper.setSpeedInStepsPerSecond(SPEED_IN_STEPS_PER_SECOND);
-   stepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
-   stepper.setAccelerationInStepsPerSecondPerSecond(ACCELERATION_IN_STEPS_PER_SECOND);
-   stepper.setDecelerationInStepsPerSecondPerSecond(DECELERATION_IN_STEPS_PER_SECOND);
+   // connect and configure the X motor to IO pins
+   xStepper.connectToPins(xPulse, xDirection);
+   // set the speed and acceleration rates for the X stepper motor
+   xStepper.setStepsPerRevolution(200);
+   xStepper.setSpeedInStepsPerSecond(SPEED_IN_STEPS_PER_SECOND);
+   xStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+   xStepper.setAccelerationInStepsPerSecondPerSecond(ACCELERATION_IN_STEPS_PER_SECOND);
+   xStepper.setDecelerationInStepsPerSecondPerSecond(DECELERATION_IN_STEPS_PER_SECOND);
 
-   stepper.startAsService(0);  // Start Flexystepper as a sevice on core 0 to avoid being slowed down by the loop
+   // connect and configure the Z motor to IO pins
+   zStepper.connectToPins(zPulse, zDirection);
+   // set the speed and acceleration rates for the Z stepper motor
+   zStepper.setStepsPerRevolution(200);
+   zStepper.setSpeedInStepsPerSecond(SPEED_IN_STEPS_PER_SECOND);
+   zStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+   zStepper.setAccelerationInStepsPerSecondPerSecond(ACCELERATION_IN_STEPS_PER_SECOND);
+   zStepper.setDecelerationInStepsPerSecondPerSecond(DECELERATION_IN_STEPS_PER_SECOND);
+
+   xStepper.startAsService(0);  // Start Flexystepper as a sevice on core 0 to avoid being slowed down by the loop
+   zStepper.startAsService(0);
 
    // Setup the screen
-   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3D for 128x64
+   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
    Serial.println(F("SSD1306 allocation failed"));
    for(;;);
    }
-   Wire.setClock(1000000);                     // Teensy Steroid injection for the OLED
    delay(2000);
    display.clearDisplay();
 
@@ -100,19 +129,14 @@ void loop()
 
       SPEED_IN_RPM = map((analogRead(speedpot)), 0, 4096, speedmin, speedmax); 
 
+      selectAxis();
       updateSwitches();
       updateScreen();
 
-      // Serial.println(SPEED_IN_RPM);
-      // Serial.println(analogRead(speedpot));
-
-    if (SPEED_IN_RPM < 50) {
-       stepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
-       stepper.setTargetPositionToStop();
+    if (activeAxis == LOW ) {
+       runX();
     } else {
-//       digitalWrite(enablePin, HIGH);   // Enable stepper
-       stepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
-       stepper.setTargetPositionRelativeInSteps(DISTANCE_TO_TRAVEL_IN_STEPS);
+       runZ();
     }
    }
 }
@@ -137,22 +161,25 @@ void updateSwitches() // Function to update the states of the controls
     // On/Off logic
     if (onoff == LOW) {
         SPEED_IN_RPM = speedmin;
-        stepper.setTargetPositionToStop();
-        digitalWrite(enablePin, HIGH);
+        xStepper.setTargetPositionToStop();
+        zStepper.setTargetPositionToStop();
+        digitalWrite(xEnable, HIGH);
+        digitalWrite(zEnable, HIGH);
     } else {
-        digitalWrite(enablePin, LOW);
+        digitalWrite(xEnable, LOW);
+        digitalWrite(zEnable, LOW);
         DISTANCE_TO_TRAVEL_IN_STEPS = 10000;
     }
     
     // Direction logic
     if (direction == LOW) {
         DISTANCE_TO_TRAVEL_IN_STEPS = DISTANCE_TO_TRAVEL_IN_STEPS * -1;
-    }  
+    }
 }
 
 void updateScreen() // Update the OLED display
 {
-     int traverse = SPEED_IN_RPM * x_lsPitch;
+     int traverse = ((SPEED_IN_RPM * scale) * lsPitch);
 
      display.clearDisplay();
      display.setCursor(0, 10);
@@ -162,4 +189,47 @@ void updateScreen() // Update the OLED display
      display.setTextSize(1);
      display.print(" mm/min");
      display.display();
+}
+
+void selectAxis() // Check for which axis is selected
+{
+   
+    int axisSelect = digitalRead(axisPin);
+
+    if (axisSelect == LOW) {
+        axis = "Z: ";
+        activeAxis = 1;
+        scale = zscale;
+        lsPitch = z_lsPitch;
+        enable = zEnable;
+        xStepper.setTargetPositionToStop();  // Stop the X axis as we're moving Z
+    } else {
+        axis = "X: ";
+        activeAxis = 0;
+        scale = xscale;
+        lsPitch = x_lsPitch;
+        enable = xEnable;
+        zStepper.setTargetPositionToStop();  // Stop the z axis as we're moving X
+    } 
+}
+
+void runX() // Run the X motor
+{
+    if (SPEED_IN_RPM < 50) {
+       xStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+       xStepper.setTargetPositionToStop();
+    } else {
+       xStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+       xStepper.setTargetPositionRelativeInSteps(DISTANCE_TO_TRAVEL_IN_STEPS);
+    }
+}
+void runZ() // Run the Z motor
+{
+    if (SPEED_IN_RPM < 50) {
+       zStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+       zStepper.setTargetPositionToStop();
+    } else {
+       zStepper.setSpeedInRevolutionsPerSecond(SPEED_IN_RPM / 60);
+       zStepper.startJogging(DISTANCE_TO_TRAVEL_IN_STEPS);
+    }
 }
