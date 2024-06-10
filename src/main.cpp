@@ -28,7 +28,7 @@ int enable = 0;
 int x_lsPitch = 2; // Lead screw pitch in mm
 int z_lsPitch = 4;
 int lsPitch = 0;
-int xscale = 1; // Scaling factors for pulley gear reductions
+int xscale = 1; // Scaling factors for pulley gear reductions in the form of X:1
 int zscale = 3;
 int scale = 0;
 
@@ -179,7 +179,7 @@ void updateSwitches() // Function to update the states of the controls
 
 void updateScreen() // Update the OLED display
 {
-     int traverse = ((SPEED_IN_RPM * scale) * lsPitch);
+     int traverse = ((SPEED_IN_RPM / scale) * lsPitch);
 
      display.clearDisplay();
      display.setCursor(0, 10);
