@@ -30,7 +30,7 @@ This is not an exhaustive guide to building the hardware, but I will list the pa
 
 ***Pinout Diagram***
 
-Insert diagram here
+[<img src="ESP Power Feed Pinout.png">]
 
 | Pin     | Connection                       | Code Variable |
 | ------- | -------------------------------- | ------------- |
